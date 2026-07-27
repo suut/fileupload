@@ -1,0 +1,32 @@
+top_level_domain = "example.com"
+
+[fileupload]
+base_url = "https://fileupload.example.com"
+
+[auth]
+auth_base_url = "https://auth.priv.example.com"
+auth_domain = "auth.priv.example.com"
+algo = "hmac"
+encoding = "urlsafe_base64"
+use_csrf = false
+verify_referrer = true
+
+[auth.hmac]
+digest = "sha3_256"
+secret_key = "+okQXtx9Tiyjo94tjZkKQp8kWI3BYpR/pi6xv8TlUQ0="
+length = 16
+
+[auth.responder]
+port = 4444
+
+[auth.csrf]
+secret_key = "nhcklE7Kn+ikEcgrWGYJ4hgl/X3RvaUiuBVTGNqRP38="
+digest = "sha3_256"
+hmac_length = 16
+
+[session]
+secret_key = "6OMxWxZPbgfoiLcGGnFr0YuRJmFFWAXIoC5jLGwJNDg="
+session_id_length = 16
+expiration_time = 86400  # [s]
+digest = "sha3_256"
+hmac_length = 16

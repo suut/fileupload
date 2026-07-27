@@ -1,0 +1,9 @@
+# Config file
+/config.toml
+
+# IDE
+/.idea/
+
+# Python
+/.venv/
+__pycache__/
