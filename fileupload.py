@@ -109,4 +109,4 @@ async def token(request: web.Request) -> web.Response:
 app = web.Application()
 aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(ROOTDIR / 'templates')))
 app.add_routes(routes)
-web.run_app(app, host='127.0.1.1', port=8080, reuse_address=True)
+web.run_app(app, host=config['fileupload']['listen_address'], port=config['fileupload']['port'], reuse_address=True)

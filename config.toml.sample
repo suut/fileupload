@@ -2,13 +2,15 @@ top_level_domain = "example.com"
 
 [fileupload]
 base_url = "https://fileupload.example.com"
+listen_address = "127.0.0.1"
+port = 8888
 
 [auth]
 auth_base_url = "https://auth.priv.example.com"
 auth_domain = "auth.priv.example.com"
 algo = "hmac"
 encoding = "urlsafe_base64"
-use_csrf = false
+use_csrf = true
 verify_referrer = true
 
 [auth.hmac]
@@ -17,7 +19,8 @@ secret_key = "+okQXtx9Tiyjo94tjZkKQp8kWI3BYpR/pi6xv8TlUQ0="
 length = 16
 
 [auth.responder]
-port = 4444
+listen_address = "127.0.0.1"
+port = 8889
 
 [auth.csrf]
 secret_key = "nhcklE7Kn+ikEcgrWGYJ4hgl/X3RvaUiuBVTGNqRP38="
