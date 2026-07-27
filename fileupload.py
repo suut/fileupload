@@ -36,57 +36,52 @@ async def favicon(request: web.Request) -> web.Response:
 
 @routes.get('/')
 async def index(request: web.Request) -> web.Response:
-    print('/:', request.headers)
-    response = aiohttp_jinja2.render_template('index.jinja2', request, {})
+    ctx = {}
+    new_cookie = None
+    if config['auth']['use_csrf']:
+        session_id, new_cookie = session.make_or_create_session(request)
+        ctx['csrf_token'] = schema.base64_urlsafe_nopad_encode(session.derive_csrf_token(session_id, 'auth-form'))
+
+    response = aiohttp_jinja2.render_template('index.jinja2', request, ctx)
+    if config['auth']['use_csrf'] and new_cookie is not None:
+        response.set_cookie('__Http-_sid', new_cookie, domain=config['top_level_domain'], samesite='Lax', secure=True,
+                            httponly=True)
     return response
 
 
-@routes.get('/request-token')
+@routes.post('/request-token')
 async def request_token(request: web.Request) -> web.Response:
-    print('/request-token:', request.headers)
-
     if config['auth']['verify_referrer'] and not request.headers.get('Referer', '').startswith(config['fileupload']['base_url']):
         raise web.HTTPForbidden()
 
-    session_valid = False
-    session_id = None
-    new_cookie = None
+    data = await request.post()
+
+    if 'filetype' not in data:
+        raise web.HTTPForbidden()
+
     if config['auth']['use_csrf']:
-        if '__Http-_sid' in request.cookies:
-            try:
-                session_id, session_valid = session.get_session_id_and_validity(request.cookies['__Http-_sid'])
-            except (PyAsn1Error, binascii.Error):
-                session_id, session_valid = None, False
+        if 'csrf_token' not in data:
+            raise web.HTTPForbidden()
+        session.check_csrf_token(session.get_session_id(request), schema.base64_urlsafe_nopad_decode(data['csrf_token']), 'auth-form')
 
-        if not session_valid:
-            session_id, new_cookie = session.make_session_cookie()
-
-    resp = web.Response()
-
-    if new_cookie:
-        resp.set_cookie('__Http-_sid', new_cookie, domain=config['top_level_domain'], samesite='Lax', secure=True, httponly=True)
+    resp = web.Response(status=303)
 
     # Make an authorization request for 30 minutes
     req = schema.AuthenticationRequest()
     req['appRequest']['fileUpload']['duration'] = 30
     req['appRequest']['fileUpload']['fileType'] = schema.FileType.namedValues['any']
     if config['auth']['use_csrf']:
-        req['cSRFToken'] = session.derive_csrf_token(session_id)
+        req['cSRFToken'] = session.derive_csrf_token(session.get_session_id(request), 'authentication')
     encoded_req = schema.encode(req, schema.Encoding.urlsafe_base64)
 
-    resp.headers['Location'] = config['auth']['auth_base_url'] + '/' + encoded_req
+    resp.headers['Location'] = f'{config["auth"]["auth_base_url"]}/api/authenticate/{encoded_req}'
     resp.headers['Referrer-Policy'] = 'origin'
-    resp.set_status(307)
 
     return resp
 
-@routes.get('/{token}')
+
+@routes.get('/t/{token}')
 async def token(request: web.Request) -> web.Response:
-    print('/{token}:', request.headers)
-
-    if config['auth']['verify_referrer'] and not request.headers.get('Referer', '').startswith(config['fileupload']['base_url']):
-        raise web.HTTPForbidden()
-
     # decode token and verify it
     try:
         response = schema.decode(request.match_info['token'], schema.Authorization(), schema.Encoding[config['auth']['encoding']])
@@ -104,7 +99,12 @@ async def token(request: web.Request) -> web.Response:
         case _:
             sys.exit('Invalid algo')
 
-    return web.Response(text='Authorization valid until: ' + str(datetime.datetime.fromtimestamp(60 * int(response['appResponse']['fileUpload']['expireAt']))))
+    response = aiohttp_jinja2.render_template('upload.jinja2', request, {
+        'expire_at': str(datetime.datetime.fromtimestamp(60 * int(response['appResponse']['fileUpload']['expireAt'])))
+    })
+
+    return response
+
 
 app = web.Application()
 aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(ROOTDIR / 'templates')))

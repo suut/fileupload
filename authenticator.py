@@ -24,15 +24,14 @@ config = pytoml.loads(CONFIG_FILE.read_text())
 
 routes = web.RouteTableDef()
 
+
 @routes.get('/favicon.ico')
 async def favicon(request: web.Request) -> web.Response:
     raise web.HTTPNotFound()
 
 
-@routes.get('/{token}')
+@routes.get('/api/authenticate/{token}')
 async def index(request: web.Request) -> web.Response:
-    print('/{token}:', request.headers)
-
     if config['auth']['verify_referrer'] and not request.headers.get('Referer', '').startswith(config['fileupload']['base_url']):
         raise web.HTTPForbidden()
 
@@ -46,14 +45,12 @@ async def index(request: web.Request) -> web.Response:
         if '__Http-_sid' not in request.cookies:
             raise web.HTTPForbidden()
         try:
-            session_id, session_valid = session.get_session_id_and_validity(request.cookies['__Http-_sid'])
+            session_id = session.get_session_id(request)
         except (PyAsn1Error, binascii.Error):
-            raise web.HTTPForbidden()
-        if not session_valid:
             raise web.HTTPForbidden()
         if not req['cSRFToken'].hasValue():
             raise web.HTTPForbidden()
-        if not session.check_csrf_token(session_id, req['cSRFToken'].asOctets()):
+        if not session.check_csrf_token(session_id, req['cSRFToken'].asOctets(), 'authentication'):
             raise web.HTTPForbidden()
 
     now = time.time() // 60
@@ -74,7 +71,9 @@ async def index(request: web.Request) -> web.Response:
 
     encoded_authorization = schema.encode(authorization, schema.Encoding[config['auth']['encoding']])
 
-    raise web.HTTPTemporaryRedirect(config['fileupload']['base_url'] + '/' + encoded_authorization)
+    resp = web.Response(status=303)
+    resp.headers['Location'] = f'{config["fileupload"]["base_url"]}/t/{encoded_authorization}'
+    return resp
 
 
 app = web.Application()

@@ -5,14 +5,14 @@ DEFINITIONS IMPLICIT TAGS ::=
 BEGIN
 
 FileType ::= BITSTRING {
-    picture (0),
-    archive (1),
-    pdf     (2),
-    text    (4),
-    any     (7)
+    picture (1),
+    archive (2),
+    pdf     (4),
+    text    (8),
+    any     (15)
 }
 
-Duration ::= INTEGER (0 .. 32767) -- in minutes, maximum 22 days, 18 hours and 7 minutes
+Duration ::= INTEGER (1 .. 30240) -- in minutes, maximum 21 days
 ExpirationTime ::= INTEGER
 
 FileUploadAuthenticationRequest ::= [APPLICATION 2] SEQUENCE {
@@ -81,7 +81,7 @@ class FileType(BitString):
 
 
 class Duration(Integer):
-    subtypeSpec = ValueRangeConstraint(0, 32767)
+    subtypeSpec = ValueRangeConstraint(1, 30240)
 
 
 class ExpirationTime(Integer):
