@@ -25,11 +25,6 @@ config = pytoml.loads(CONFIG_FILE.read_text())
 routes = web.RouteTableDef()
 
 
-@routes.get('/favicon.ico')
-async def favicon(request: web.Request) -> web.Response:
-    raise web.HTTPNotFound()
-
-
 @routes.get('/api/authenticate/{token}')
 async def index(request: web.Request) -> web.Response:
     if config['auth']['verify_referrer'] and not request.headers.get('Referer', '').startswith(config['fileupload']['base_url']):
@@ -54,11 +49,11 @@ async def index(request: web.Request) -> web.Response:
             raise web.HTTPForbidden()
 
     now = time.time() // 60
-    expire_at = now + int(req['appRequest']['fileUpload']['duration'])
+    expire_at = now + int(req['duration'])
 
     authorization = schema.Authorization()
-    authorization['appResponse']['fileUpload']['expireAt'] = expire_at
-    authorization['appResponse']['fileUpload']['fileType'] = req['appRequest']['fileUpload']['fileType']
+    authorization['expiration'] = expire_at
+    authorization['appResponse'] = req['appRequest']
 
     encoded_parameters = der_encode(authorization['appResponse'])
 
@@ -71,9 +66,13 @@ async def index(request: web.Request) -> web.Response:
 
     encoded_authorization = schema.encode(authorization, schema.Encoding[config['auth']['encoding']])
 
-    resp = web.Response(status=303)
-    resp.headers['Location'] = f'{config["fileupload"]["base_url"]}/t/{encoded_authorization}'
-    return resp
+    response = web.Response(status=303)
+    response.headers['Location'] = f'{config["fileupload"]["base_url"]}/t/{encoded_authorization}'
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-site'
+    response.headers['Referrer-Policy'] = 'origin'
+    return response
 
 
 app = web.Application()

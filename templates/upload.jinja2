@@ -1,12 +1,130 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>File upload</title>
-  </head>
-  <body>
-    Authorization valid until {{ expire_at }}
-  </body>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <title>File upload</title>
+        <style nonce="{{ style_nonce }}">
+            fieldset {
+                width: 500px;
+            }
+
+            #url {
+                width: 600px;
+                font-family: monospace;
+            }
+
+            #url-button {
+                display: none;
+            }
+
+            #url-button.visible {
+                display: inline;
+            }
+
+            #copied {
+                opacity: 0;
+                display: none;
+            }
+
+            #copied.fade-in {
+                display: inline;
+                animation: fade-in 0.2s ease-in forwards;
+            }
+
+            @keyframes fade-in {
+                0% {
+                    opacity: 0;
+                    display: none;
+                }
+
+                100% {
+                    opacity: 1;
+                    display: inline;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div>
+            Authorization valid until <u>{{ expire_at }}</u>
+            <br/>
+            <b>
+                {% if access_mode == access_modes['private'] %}
+                Private
+                {% else %}
+                Public
+                {% endif %}
+            </b>
+            file upload
+        </div>
+        <br/>
+        <div>
+            <label for="url">Link for uploading:</label>
+            <input id="url" type="text" value="{{ url }}" readonly="readonly" />
+            <button id="url-button">Copy</button>
+            <span id="copied">Copied!</span>
+        </div>
+        <hr/>
+        <form id="upload" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="metadata" value="keep" />
+            <fieldset>
+                <legend>Upload file</legend>
+                {% if file_type|mask(file_types['picture']) %}
+                    <div>
+                        Image metadata:
+                        <span>
+                            <input type="radio" id="keep-metadata" {# name="metadata" #} value="keep" checked disabled /><label for="keep-metadata">Keep</label>
+                            <input type="radio" id="remove-geolocation" {# name="metadata" #} value="geolocation" disabled /><label for="remove-geolocation">Remove geolocation</label>
+                            <input type="radio" id="remove-all" {# name="metadata" #} value="all" disabled /><label for="remove-all">Remove all</label>
+                        </span>
+                    </div>
+                {% endif %}
+                <br/>
+                <div>
+                    <input type="file" name="file"/>
+                </div>
+                <br/>
+                <button form="upload" type="submit">Upload</button>
+            </fieldset>
+        </form>
+        <br/>
+        Allowed file types:
+        {% if file_type|mask(file_types['picture']) %}
+            picture
+        {% endif %}
+        {% if file_type|mask(file_types['archive']) %}
+            archive
+        {% endif %}
+        {% if file_type|mask(file_types['pdf']) %}
+            PDF
+        {% endif %}
+        {% if file_type|mask(file_types['text']) %}
+            text
+        {% endif %}
+        <script nonce="{{ script_nonce }}" blocking="render">
+            /**
+             * @type {HTMLButtonElement}
+             */
+            const btn = document.getElementById('url-button');
+            /**
+             * @type {HTMLInputElement}
+             */
+            const url = document.getElementById('url');
+            /**
+             * @type {HTMLSpanElement}
+             */
+            const copied = document.getElementById('copied');
+
+            btn.addEventListener('click', e => {
+                url.select();
+                navigator.clipboard.writeText(url.value).then(() => {
+                        copied.classList.add('fade-in');
+                });
+            })
+
+            btn.classList.add('visible');
+        </script>
+    </body>
 </html>

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-
+import asyncio
+import os
+import time
 from pathlib import Path
 import hmac
 import base64
 import sys
 import datetime
 import binascii
+import tempfile
 
+import aiohttp.multipart
 from aiohttp import web
 import pytoml
 from pyasn1.codec.der.encoder import encode as der_encode
@@ -26,26 +30,42 @@ CONFIG_FILE = ROOTDIR / 'config.toml'
 config = pytoml.loads(CONFIG_FILE.read_text())
 
 
+TMPDIR = Path(ROOTDIR / config['fileupload']['temporary_directory'])
+TMPDIR.mkdir(exist_ok=True)
+
+OUTPUT_PRIVATE = ROOTDIR / config['fileupload']['output']['private_dir']
+OUTPUT_PUBLIC = ROOTDIR / config['fileupload']['output']['public_dir']
+
+OUTPUT_PRIVATE.mkdir(parents=True, exist_ok=True)
+OUTPUT_PUBLIC.mkdir(parents=True, exist_ok=True)
+
 routes = web.RouteTableDef()
-
-
-@routes.get('/favicon.ico')
-async def favicon(request: web.Request) -> web.Response:
-    raise web.HTTPNotFound()
 
 
 @routes.get('/')
 async def index(request: web.Request) -> web.Response:
-    ctx = {}
+    style_nonce = schema.make_nonce(config['fileupload']['css_nonce_length'])
+    script_nonce = schema.make_nonce(config['fileupload']['javascript_nonce_length'])
+
+    ctx = {
+        'style_nonce': style_nonce,
+        'script_nonce': script_nonce
+    }
+
     new_cookie = None
     if config['auth']['use_csrf']:
-        session_id, new_cookie = session.make_or_create_session(request)
+        session_id, new_cookie = session.get_or_create_session(request)
         ctx['csrf_token'] = schema.base64_urlsafe_nopad_encode(session.derive_csrf_token(session_id, 'auth-form'))
 
     response = aiohttp_jinja2.render_template('index.jinja2', request, ctx)
     if config['auth']['use_csrf'] and new_cookie is not None:
         response.set_cookie('__Http-_sid', new_cookie, domain=config['top_level_domain'], samesite='Lax', secure=True,
                             httponly=True)
+    response.headers['Content-Security-Policy'] = f"style-src 'nonce-{style_nonce}'; script-src 'nonce-{script_nonce}'"
+    response.headers['Referrer-Policy'] = 'origin'
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-site'
     return response
 
 
@@ -56,7 +76,13 @@ async def request_token(request: web.Request) -> web.Response:
 
     data = await request.post()
 
-    if 'filetype' not in data:
+    if 'filetype' not in data or data['filetype'] not in schema.FileType.namedValues:
+        raise web.HTTPForbidden()
+
+    if 'duration' not in data or not all(c in '0123456789' for c in data['duration']):
+        raise web.HTTPForbidden()
+
+    if 'access_mode' not in data or data['access_mode'] not in schema.AccessMode.namedValues:
         raise web.HTTPForbidden()
 
     if config['auth']['use_csrf']:
@@ -64,49 +90,167 @@ async def request_token(request: web.Request) -> web.Response:
             raise web.HTTPForbidden()
         session.check_csrf_token(session.get_session_id(request), schema.base64_urlsafe_nopad_decode(data['csrf_token']), 'auth-form')
 
-    resp = web.Response(status=303)
-
-    # Make an authorization request for 30 minutes
     req = schema.AuthenticationRequest()
-    req['appRequest']['fileUpload']['duration'] = 30
-    req['appRequest']['fileUpload']['fileType'] = schema.FileType.namedValues['any']
+    req['duration'] = int(data['duration'])
+    req['appRequest']['fileUpload']['fileType'] = schema.FileType.namedValues[data['filetype']]
+    req['appRequest']['fileUpload']['accessMode'] = schema.AccessMode.namedValues[data['access_mode']]
     if config['auth']['use_csrf']:
         req['cSRFToken'] = session.derive_csrf_token(session.get_session_id(request), 'authentication')
     encoded_req = schema.encode(req, schema.Encoding.urlsafe_base64)
 
-    resp.headers['Location'] = f'{config["auth"]["auth_base_url"]}/api/authenticate/{encoded_req}'
-    resp.headers['Referrer-Policy'] = 'origin'
+    response = web.Response(status=303)
+    response.headers['Location'] = f'{config["auth"]["auth_base_url"]}/api/authenticate/{encoded_req}'
+    response.headers['Referrer-Policy'] = 'origin'
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-site'
 
-    return resp
+    return response
 
 
-@routes.get('/t/{token}')
-async def token(request: web.Request) -> web.Response:
+def decode_and_verify_token(token):
     # decode token and verify it
     try:
-        response = schema.decode(request.match_info['token'], schema.Authorization(), schema.Encoding[config['auth']['encoding']])
+        auth = schema.decode(token, schema.Authorization(), schema.Encoding[config['auth']['encoding']])
     except (PyAsn1Error, binascii.Error):
         raise web.HTTPForbidden()
 
-    signed_data = der_encode(response['appResponse'])
+    signed_data = der_encode(auth['appResponse'])
 
     # check signature
     match config['auth']['algo']:
         case 'hmac':
             digest = hmac.digest(base64.b64decode(config['auth']['hmac']['secret_key']), signed_data, config['auth']['hmac']['digest'])
             digest = digest[:config['auth']['hmac']['length']]
-            assert hmac.compare_digest(digest, response['signature'].asOctets())
-        case _:
-            sys.exit('Invalid algo')
+            if not hmac.compare_digest(digest, auth['signature'].asOctets()):
+                raise web.HTTPForbidden()
+        case algo:
+            print('Invalid algo', algo, file=sys.stderr)
+            raise web.HTTPForbidden()
+
+    # check validity
+    if 60 * auth['expiration'] < time.time():
+        raise web.HTTPForbidden()
+
+    return auth
+
+
+@routes.get('/t/{token}')
+async def token(request: web.Request) -> web.Response:
+    auth = decode_and_verify_token(request.match_info['token'])
+
+    style_nonce = schema.make_nonce(config['fileupload']['css_nonce_length'])
+    script_nonce = schema.make_nonce(config['fileupload']['javascript_nonce_length'])
 
     response = aiohttp_jinja2.render_template('upload.jinja2', request, {
-        'expire_at': str(datetime.datetime.fromtimestamp(60 * int(response['appResponse']['fileUpload']['expireAt'])))
+        'access_modes': schema.AccessMode.namedValues,
+        'file_types': schema.FileType.namedValues,
+        'expire_at': str(datetime.datetime.fromtimestamp(60 * int(auth['expiration']))),
+        'file_type': auth['appResponse']['fileUpload']['fileType'].asInteger(),
+        'token': request.match_info['token'],
+        'access_mode': auth['appResponse']['fileUpload']['accessMode'],
+        'style_nonce': style_nonce,
+        'script_nonce': script_nonce,
+        'url': f'{config["fileupload"]["base_url"]}/t/{request.match_info["token"]}'
     })
+
+    response.headers['Content-Security-Policy'] = f"style-src 'nonce-{style_nonce}'; script-src 'nonce-{script_nonce}'"
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-site'
 
     return response
 
 
+async def read_multipart(f, field: aiohttp.multipart.BodyPartReader, short_timeout: int|float, long_timeout: int|float, chunk_size:int = 4096):
+    try:
+        async with asyncio.timeout(long_timeout):
+            while not field.at_eof():
+                async with asyncio.timeout(short_timeout):
+                    f.write(await field.read_chunk(chunk_size))
+    except TimeoutError:
+        raise web.HTTPRequestTimeout()
+
+
+@routes.post('/t/{token}')
+async def post(request: web.Request) -> web.Response:
+    auth = decode_and_verify_token(request.match_info['token'])
+
+    if request.content_type != 'multipart/form-data':
+        raise web.HTTPForbidden()
+
+    reader = await request.multipart()
+
+    found_fields = set()
+    tmp = tempfile.NamedTemporaryFile(dir=TMPDIR, delete=False, delete_on_close=False, suffix='.tmp')
+    tmp_filename = tmp.name
+    filename = None
+    metadata = None
+    try:
+        while True:
+            field: aiohttp.multipart.BodyPartReader = await reader.next()
+            if field is None:
+                break
+            match field.name:
+                case 'metadata':
+                    metadata = await field.text(encoding='utf-8')
+                    print(f'Metadata policy: {metadata!r}')
+
+                case 'file':
+                    if not field.filename:
+                        raise web.HTTPForbidden()  # empty file or no filename
+
+                    filename = field.filename
+                    print(f'Receiving file: {filename!r}')
+
+                    if field.filename in ('.', '..') or '/' in field.filename:
+                        raise web.HTTPForbidden()
+
+                    await read_multipart(tmp, field, config['fileupload']['recv_chunk_timeout'],
+                                         config['fileupload']['recv_file_timeout'])
+                    tmp.close()
+
+                case _:
+                        raise web.HTTPForbidden()
+            found_fields.add(field.name)
+        if found_fields != {'metadata', 'file'}:
+            raise web.HTTPForbidden()
+
+    except web.HTTPException:
+        os.unlink(tmp_filename)
+        raise
+    except:
+        os.unlink(tmp_filename)
+        raise web.HTTPForbidden()
+
+    # TODO: remove metadata
+
+    orig_stem, sep, suffix = filename.partition('.')
+    stem = orig_stem + '-' + os.urandom(4).hex()
+
+    if auth['appResponse']['fileUpload']['accessMode'] == schema.AccessMode.namedValues['public']:
+        outdir = OUTPUT_PUBLIC
+        base_url = config['fileupload']['output']['public_base_url']
+    else:  # private
+        outdir = OUTPUT_PRIVATE
+        base_url = config['fileupload']['output']['private_base_url']
+
+    while (outfile := outdir / (stem + sep + suffix)).exists():
+        stem = orig_stem + '-' + os.urandom(4).hex()
+
+    os.rename(tmp_filename, str(outfile))
+    outfile.chmod(0o644)
+
+    return web.Response(text=base_url + '/' + str(outfile.name))
+
+
+def mask(a, b):
+    return a & b
+
+
 app = web.Application()
-aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(ROOTDIR / 'templates')))
+aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(ROOTDIR / 'templates')), filters={
+    'mask': mask
+})
 app.add_routes(routes)
 web.run_app(app, host=config['fileupload']['listen_address'], port=config['fileupload']['port'], reuse_address=True)

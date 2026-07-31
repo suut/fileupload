@@ -4,10 +4,20 @@ top_level_domain = "example.com"
 base_url = "https://fileupload.example.com"
 listen_address = "127.0.0.1"
 port = 8888
+css_nonce_length = 16
+javascript_nonce_length = 16
+temporary_directory = "/var/fileupload/tmp"
+recv_file_timeout = 60  # [s]
+recv_chunk_timeout = 1  # [s], maximum time to receive 4KiB; thus minimum upload speed 32Kbps
+
+[fileupload.output]
+private_dir = "/var/www/private"
+private_base_url = "https://priv.example.com"
+public_dir = "/var/www/public"
+public_base_url = "https://pub.example.com"
 
 [auth]
 auth_base_url = "https://auth.priv.example.com"
-auth_domain = "auth.priv.example.com"
 algo = "hmac"
 encoding = "urlsafe_base64"
 use_csrf = true
@@ -30,6 +40,7 @@ hmac_length = 16
 [session]
 secret_key = "6OMxWxZPbgfoiLcGGnFr0YuRJmFFWAXIoC5jLGwJNDg="
 session_id_length = 16
-expiration_time = 86400  # [s]
+expiration_time = 86400  # [s] = 24 h
+renew_within = 3600  # [s] = 1 h
 digest = "sha3_256"
 hmac_length = 16

@@ -1,53 +1,66 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>File upload</title>
-  </head>
-  <body>
-    <form action="/request-token" method="post" id="request_token">
-        <input type="hidden" value="{{ csrf_token }}" name="csrf_token" />
-        <fieldset style="width: 100px">
-            <legend>File type:</legend>
-            <div>
-                <input type="radio" id="picture" name="filetype" checked="checked"/>
-                <label for="picture">picture</label>
-            </div>
-            <div>
-                <input type="radio" id="archive" name="filetype" value="archive"/>
-                <label for="archive">archive</label>
-            </div>
-            <div>
-                <input type="radio" id="pdf" name="filetype" value="pdf"/>
-                <label for="pdf">pdf</label>
-            </div>
-            <div>
-                <input type="radio" id="text" name="filetype" value="text"/>
-                <label for="text">text</label>
-            </div>
-            <div>
-                <input type="radio" id="any" name="filetype" value="any"/>
-                <label for="any">any</label>
-            </div>
-        </fieldset>
-        <br/>
-        <div>
-            <label for="duration">Valid for:</label>
-            <select name="duration" id="duration">
-                <option value="5">5 minutes</option>
-                <option value="30">30 minutes</option>
-                <option value="60">1 hour</option>
-                <option value="240">4 hours</option>
-                <option value="720">12 hours</option>
-                <option value="1440">1 day</option>
-                <option value="10080">1 week</option>
-                <option value="30240">3 weeks</option>
-            </select>
-        </div>
-        <br/>
-        <button form="request_token" type="submit">Request authorization</button>
-    </form>
-  </body>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <title>File upload</title>
+        <style nonce="{{ style_nonce }}">
+            #main-fieldset {
+                width: 400px;
+            }
+        </style>
+    </head>
+    <body>
+        <form action="/request-token" method="post" id="request_token">
+            <fieldset id="main-fieldset">
+                <legend>Request authorization</legend>
+                <input type="hidden" value="{{ csrf_token }}" name="csrf_token" />
+                <fieldset id="filetype-fieldset">
+                    <legend>File type</legend>
+                    <div>
+                        <input type="radio" id="picture" name="filetype" value="picture" checked />
+                        <label for="picture">picture</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="archive" name="filetype" value="archive"/>
+                        <label for="archive">archive</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="pdf" name="filetype" value="pdf"/>
+                        <label for="pdf">pdf</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="text" name="filetype" value="text"/>
+                        <label for="text">text</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="any" name="filetype" value="any"/>
+                        <label for="any">any</label>
+                    </div>
+                </fieldset>
+                <p>
+                    <label for="duration">Valid for:</label>
+                    <select name="duration" id="duration">
+                        <option value="5">5 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="60">1 hour</option>
+                        <option value="240">4 hours</option>
+                        <option value="720">12 hours</option>
+                        <option value="1440">1 day</option>
+                        <option value="10080">1 week</option>
+                        <option value="30240">3 weeks</option>
+                    </select>
+                </p>
+                <p>
+                    File access mode:
+                    <span>
+                        <input type="radio" id="access-mode-private" name="access_mode" value="private" checked= /><label for="access-mode-private">Private</label>
+                        <input type="radio" id="access-mode-public" name="access_mode" value="public" /><label for="access-mode-public">Public</label>
+                    </span>
+                </p>
+                <button form="request_token" type="submit">Request authorization</button>
+            </fieldset>
+        </form>
+    </body>
 </html>

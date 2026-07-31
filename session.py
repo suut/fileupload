@@ -24,7 +24,7 @@ CONFIG_FILE = ROOTDIR / 'config.toml'
 config = pytoml.loads(CONFIG_FILE.read_text())
 
 
-def get_session_id(req: web.Request) -> bytes:
+def get_session_id(req: web.Request, return_expiration_date=False) -> bytes|tuple[bytes, int]:
     if (key := '__Http-_sid') not in req.cookies:
         raise web.HTTPForbidden()
     s = req.cookies[key]
@@ -36,7 +36,10 @@ def get_session_id(req: web.Request) -> bytes:
     valid = digest_ok and cookie['data']['notBefore'] <= int(time.time()) <= cookie['data']['notAfter']
     if not valid:
         raise web.HTTPForbidden()
-    return cookie['data']['sessionId'].asOctets()
+    if return_expiration_date:
+        return cookie['data']['sessionId'].asOctets(), int(cookie['data']['notAfter'])
+    else:
+        return cookie['data']['sessionId'].asOctets()
 
 
 def make_session_cookie() -> tuple[bytes, str]:
@@ -63,14 +66,17 @@ def check_csrf_token(session_id: bytes, csrf_token: bytes, label: str) -> bool:
     return hmac.compare_digest(digest, csrf_token)
 
 
-def make_or_create_session(request: web.Request) -> tuple[bytes, str|None]:
+def get_or_create_session(request: web.Request) -> tuple[bytes, str | None]:
     session_valid = False
     session_id = None
     new_cookie = None
     if '__Http-_sid' in request.cookies:
         try:
-            session_id = get_session_id(request)
-            session_valid = True
+            session_id, expiration = get_session_id(request, return_expiration_date=True)
+            if expiration - config['session']['renew_within'] < int(time.time()):
+                session_valid = False
+            else:
+                session_valid = True
         except (PyAsn1Error, binascii.Error, web.HTTPClientError):
             session_id, session_valid = None, False
 

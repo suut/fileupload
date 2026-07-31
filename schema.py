@@ -12,35 +12,33 @@ FileType ::= BITSTRING {
     any     (15)
 }
 
+AccessMode ::= ENUMERATED {
+    private (1),
+    public  (2)
+}
+
 Duration ::= INTEGER (1 .. 30240) -- in minutes, maximum 21 days
 ExpirationTime ::= INTEGER
 
-FileUploadAuthenticationRequest ::= [APPLICATION 2] SEQUENCE {
-    duration  [0]  Duration,
-    fileType  [1]  FileType
+FileUpload ::= [APPLICATION 2] SEQUENCE {
+    fileType   [0]  FileType,
+    accessMode [1]  AccessMode
 }
 
-FileUploadAuthenticationResponse ::= [APPLICATION 3] SEQUENCE {
-    expireAt [0]  ExpirationTime,
-    fileType [1]  FileType
-}
-
-ApplicationRequest ::= CHOICE {
-    fileUpload FileUploadAuthenticationRequest
-}
-
-ApplicationResponse ::= CHOICE {
-    fileUpload FileUploadAuthenticationResponse
+ApplicationToken ::= CHOICE {
+    fileUpload FileUpload
 }
 
 AuthenticationRequest ::= [APPLICATION 0] SEQUENCE {
-    appRequest [0]  EXPLICIT ApplicationRequest
-    cSRFToken  [1]  OCTET STRING OPTIONAL
+    appRequest [0]  EXPLICIT ApplicationToken,
+    duration   [1]  Duration,
+    cSRFToken  [2]  OCTET STRING OPTIONAL
 }
 
 Authorization ::= [APPLICATION 1] SEQUENCE {
-    appResponse [0]  EXPLICIT ApplicationResponse,
-    signature   [1]  OCTET STRING
+    appResponse [0]  EXPLICIT ApplicationToken,
+    expiration  [1] ExpirationTime,
+    signature   [2]  OCTET STRING
 }
 
 SessionCookieData ::= SEQUENCE {
@@ -49,13 +47,17 @@ SessionCookieData ::= SEQUENCE {
     notAfter  [2]  INTEGER
 }
 
-SessionCookie ::= [APPLICATION 4] SEQUENCE {
+SessionCookie ::= [APPLICATION 3] SEQUENCE {
     data      [0]  SessionCookieData,
     signature [1]  OCTET STRING
 }
 
 END
 """
+
+from enum import Enum, auto
+import base64
+import os
 
 from pyasn1.type.base import *
 from pyasn1.type.univ import *
@@ -66,8 +68,6 @@ from pyasn1.type.constraint import *
 from pyasn1.error import PyAsn1Error
 from pyasn1.codec.der.encoder import encode as der_encode
 from pyasn1.codec.der.decoder import decode as der_decode
-from enum import Enum, auto
-import base64
 
 
 class FileType(BitString):
@@ -77,6 +77,13 @@ class FileType(BitString):
         ('pdf', 4),
         ('text', 8),
         ('any', 15)
+    )
+
+
+class AccessMode(Enumerated):
+    namedValues = NamedValues(
+        ('private', 1),
+        ('public', 2)
     )
 
 
@@ -92,12 +99,12 @@ class FileUpload(Sequence):
     tagSet = Sequence.tagSet.tagImplicitly(Tag(tagClassApplication, tagFormatConstructed, 2))
 
     componentType = NamedTypes(
-        NamedType('duration', Duration().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 0))),
-        NamedType('fileType', FileType().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 1)))
+        NamedType('fileType', FileType().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 0))),
+        NamedType('accessMode', AccessMode().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 1)))
     )
 
 
-class ApplicationRequest(Choice):
+class ApplicationToken(Choice):
     componentType = NamedTypes(
         NamedType('fileUpload', FileUpload())
     )
@@ -107,22 +114,9 @@ class AuthenticationRequest(Sequence):
     tagSet = Sequence.tagSet.tagImplicitly(Tag(tagClassApplication, tagFormatConstructed, 0))
 
     componentType = NamedTypes(
-        NamedType('appRequest', ApplicationRequest().subtype(explicitTag=Tag(tagClassContext, tagFormatConstructed, 0))),
-        OptionalNamedType('cSRFToken', OctetString().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 1)))
-    )
-
-
-class FileUploadAuthenticationResponse(Sequence):
-    tagSet = Sequence.tagSet.tagImplicitly(Tag(tagClassApplication, tagFormatConstructed, 3))
-    componentType = NamedTypes(
-        NamedType('expireAt', ExpirationTime().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 0))),
-        NamedType('fileType', FileType().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 1)))
-    )
-
-
-class ApplicationResponse(Choice):
-    componentType = NamedTypes(
-        NamedType('fileUpload', FileUploadAuthenticationResponse())
+        NamedType('appRequest', ApplicationToken().subtype(explicitTag=Tag(tagClassContext, tagFormatConstructed, 0))),
+        NamedType('duration', Duration().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 1))),
+        OptionalNamedType('cSRFToken', OctetString().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 2)))
     )
 
 
@@ -130,8 +124,9 @@ class Authorization(Sequence):
     tagSet = Sequence.tagSet.tagImplicitly(Tag(tagClassApplication, tagFormatConstructed, 1))
 
     componentType = NamedTypes(
-        NamedType('appResponse', ApplicationResponse().subtype(explicitTag=Tag(tagClassContext, tagFormatConstructed, 0))),
-        NamedType('signature', OctetString().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 1)))
+        NamedType('appResponse', ApplicationToken().subtype(explicitTag=Tag(tagClassContext, tagFormatConstructed, 0))),
+        NamedType('expiration', ExpirationTime().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 1))),
+        NamedType('signature', OctetString().subtype(implicitTag=Tag(tagClassContext, tagFormatSimple, 2)))
     )
 
 
@@ -144,7 +139,7 @@ class SessionCookieData(Sequence):
 
 
 class SessionCookie(Sequence):
-    tagSet = Sequence.tagSet.tagImplicitly(Tag(tagClassApplication, tagFormatConstructed, 4))
+    tagSet = Sequence.tagSet.tagImplicitly(Tag(tagClassApplication, tagFormatConstructed, 3))
 
     componentType = NamedTypes(
         NamedType('data', SessionCookieData().subtype(implicitTag=Tag(tagClassContext, tagFormatConstructed, 0))),
@@ -196,3 +191,7 @@ def decode(data: str, schema: Asn1Type, encoding: Encoding) -> Asn1Type:
     if rest != b'':
         raise PyAsn1Error()
     return obj
+
+
+def make_nonce(length):
+    return base64_urlsafe_nopad_encode(os.urandom(length))
