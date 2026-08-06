@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <title>Encrypted file</title>
+        <style nonce="{{ style_nonce }}">
+            #url {
+                width: 600px;
+                font-family: monospace;
+            }
+
+            #url-button {
+                display: none;
+            }
+
+            #url-button.visible {
+                display: inline;
+            }
+
+            #copied {
+                opacity: 0;
+                display: none;
+            }
+
+            #copied.fade-in {
+                display: inline;
+                animation: fade-in 0.2s ease-in forwards;
+            }
+
+            @keyframes fade-in {
+                0% {
+                    opacity: 0;
+                    display: none;
+                }
+
+                100% {
+                    opacity: 1;
+                    display: inline;
+                }
+            }
+
+            body > noscript {
+                font-size: xxx-large;
+                color: red;
+            }
+
+            #content {
+                display: none;
+            }
+
+            #content.visible {
+                display: block;
+            }
+
+            #log {
+                color: red;
+            }
+        </style>
+    </head>
+    <body>
+        <noscript>
+            Cannot decrypt without JavaScript !!!
+        </noscript>
+        <div id="content">
+            <div>
+                <label for="url">File URL:</label>
+                <input id="url" type="text" value="" readonly="readonly" />
+                <button id="url-button">Copy</button>
+                <span id="copied">Copied!</span>
+            </div>
+            <br/>
+            <button id="download">Download file</button>
+            <pre id="log"></pre>
+        </div>
+        <script nonce="{{ script_nonce }}" blocking="render">
+            /**
+             * @type {HTMLButtonElement}
+             */
+            const btn = document.getElementById('url-button');
+            /**
+             * @type {HTMLInputElement}
+             */
+            const url = document.getElementById('url');
+            /**
+             * @type {HTMLSpanElement}
+             */
+            const copied = document.getElementById('copied');
+            /**
+             * @type {HTMLDivElement}
+             */
+            const content = document.getElementById('content');
+            /**
+             * @type {HTMLButtonElement}
+             */
+            const download = document.getElementById('download');
+            /**
+             * @type {HTMLDivElement}
+             */
+            const log = document.getElementById('log');
+
+            btn.addEventListener('click', e => {
+                url.select();
+                navigator.clipboard.writeText(url.value).then(() => {
+                        copied.classList.add('fade-in');
+                });
+            })
+
+            /**
+             * @param fileUrl String
+             * @param fileName String
+             * @returns {Promise<void>}
+             */
+            async function downloadFile(fileUrl, fileName) {
+                const hash = window.location.hash;
+                if (!hash.startsWith('#')) {
+                    throw new Error('Anchor does not start with #');
+                }
+                const sep = hash.indexOf('/');
+                if (sep === -1) {
+                    throw new Error('Malformed anchor');
+                }
+
+                const ivEncoded = hash.slice(1, sep);
+                const keyEncoded = hash.slice(sep + 1);
+
+                if (ivEncoded === '') {
+                    throw new Error('Empty IV');
+                }
+
+                if (keyEncoded === '') {
+                    throw new Error('Empty key');
+                }
+
+                // Get the ciphertext
+                const response = await fetch(fileUrl, {
+                    credentials: 'include',
+                    method: 'GET',
+                    mode: 'cors'
+                });
+
+                const ciphertext = await response.bytes();
+                const iv = Uint8Array.fromBase64(ivEncoded, {alphabet: 'base64url', lastChunkHandling: 'loose'});
+                const keyData = Uint8Array.fromBase64(keyEncoded, {alphabet: 'base64url', lastChunkHandling: 'loose'});
+                const key = await self.crypto.subtle.importKey('raw', keyData, 'AES-GCM', false, ['decrypt']);
+
+                const cleartext = await self.crypto.subtle.decrypt({name: 'AES-GCM', iv: iv, tagLength: 128}, key, ciphertext);
+
+                const file = new File([cleartext], fileName, {type: 'application/octet-stream'});
+                const blobUrl = URL.createObjectURL(file);
+
+                /**
+                 * @type {HTMLAnchorElement}
+                 */
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = fileName;
+                a.click();
+                a.remove();
+
+                URL.revokeObjectURL(blobUrl);
+            }
+
+            download.addEventListener('click', e => {
+                downloadFile({{ file_url|tojson }}, {{ filename|tojson }}).catch(e => {
+                    console.error(e);
+                    log.innerText += e.toString() + '\n';
+                });
+            })
+
+            url.value = window.location;
+            btn.classList.add('visible');
+            content.classList.add('visible');
+        </script>
+    </body>
+</html>

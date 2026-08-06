@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <title>File upload successful</title>
+        <style nonce="{{ style_nonce }}">
+            #url {
+                width: 600px;
+                font-family: monospace;
+            }
+
+            #url-button {
+                display: none;
+            }
+
+            #url-button.visible {
+                display: inline;
+            }
+
+            #copied {
+                opacity: 0;
+                display: none;
+            }
+
+            #copied.fade-in {
+                display: inline;
+                animation: fade-in 0.2s ease-in forwards;
+            }
+
+            @keyframes fade-in {
+                0% {
+                    opacity: 0;
+                    display: none;
+                }
+
+                100% {
+                    opacity: 1;
+                    display: inline;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div>
+            <label for="url">File URL:</label>
+            <input id="url" type="text" value="{{ url }}" readonly="readonly" />
+            <button id="url-button">Copy</button>
+            <span id="copied">Copied!</span>
+        </div>
+        <br/>
+        <div>
+            <a href="{{ url }}" target="_blank">Open in new tab</a>
+        </div>
+        <script nonce="{{ script_nonce }}" blocking="render">
+            /**
+             * @type {HTMLButtonElement}
+             */
+            const btn = document.getElementById('url-button');
+            /**
+             * @type {HTMLInputElement}
+             */
+            const url = document.getElementById('url');
+            /**
+             * @type {HTMLSpanElement}
+             */
+            const copied = document.getElementById('copied');
+
+            btn.addEventListener('click', e => {
+                url.select();
+                navigator.clipboard.writeText(url.value).then(() => {
+                        copied.classList.add('fade-in');
+                });
+            })
+
+            btn.classList.add('visible');
+        </script>
+    </body>
+</html>

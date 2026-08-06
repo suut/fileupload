@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import asyncio
+import json
 import os
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ import tempfile
 import aiohttp.multipart
 from aiohttp import web
 import pytoml
+from aiohttp.web_response import json_response
 from pyasn1.codec.der.encoder import encode as der_encode
 from pyasn1.error import PyAsn1Error
 import aiohttp_jinja2
@@ -179,18 +181,23 @@ async def post(request: web.Request) -> web.Response:
     if request.content_type != 'multipart/form-data':
         raise web.HTTPForbidden()
 
-    reader = await request.multipart()
+    reader: aiohttp.multipart.MultipartReader|None = await request.multipart()
+    if reader is None:
+        raise web.HTTPForbidden()
 
     found_fields = set()
     tmp = tempfile.NamedTemporaryFile(dir=TMPDIR, delete=False, delete_on_close=False, suffix='.tmp')
     tmp_filename = tmp.name
     filename = None
     metadata = None
+    encrypted = False
     try:
         while True:
-            field: aiohttp.multipart.BodyPartReader = await reader.next()
+            field: aiohttp.multipart.BodyPartReader|aiohttp.multipart.MultipartReader|None = await reader.next()
             if field is None:
                 break
+            if not isinstance(field, aiohttp.multipart.BodyPartReader):
+                raise web.HTTPForbidden()
             match field.name:
                 case 'metadata':
                     metadata = await field.text(encoding='utf-8')
@@ -201,7 +208,6 @@ async def post(request: web.Request) -> web.Response:
                         raise web.HTTPForbidden()  # empty file or no filename
 
                     filename = field.filename
-                    print(f'Receiving file: {filename!r}')
 
                     if field.filename in ('.', '..') or '/' in field.filename:
                         raise web.HTTPForbidden()
@@ -210,10 +216,14 @@ async def post(request: web.Request) -> web.Response:
                                          config['fileupload']['recv_file_timeout'])
                     tmp.close()
 
-                case _:
-                        raise web.HTTPForbidden()
+                case 'encrypted':
+                    if await field.text(encoding='utf-8') == 'true':
+                        encrypted = True
+
+                case x:
+                    raise web.HTTPForbidden()
             found_fields.add(field.name)
-        if found_fields != {'metadata', 'file'}:
+        if 'file' not in found_fields:
             raise web.HTTPForbidden()
 
     except web.HTTPException:
@@ -241,7 +251,64 @@ async def post(request: web.Request) -> web.Response:
     os.rename(tmp_filename, str(outfile))
     outfile.chmod(0o644)
 
-    return web.Response(text=base_url + '/' + str(outfile.name))
+    if encrypted:
+        if auth['appResponse']['fileUpload']['accessMode'] == schema.AccessMode.namedValues['public']:
+            return web.json_response(text=json.dumps({'url': f'{config["fileupload"]["base_url"]}/enc/pub/{outfile.name}'}))
+        else:
+            return web.json_response(text=json.dumps({'url': f'{config["fileupload"]["base_url"]}/enc/priv/{outfile.name}'}))
+
+    else:
+        style_nonce = schema.make_nonce(config['fileupload']['css_nonce_length'])
+        script_nonce = schema.make_nonce(config['fileupload']['javascript_nonce_length'])
+
+        response = aiohttp_jinja2.render_template('success.jinja2', request, {
+            'style_nonce': style_nonce,
+            'script_nonce': script_nonce,
+            'url': f'{base_url}/{outfile.name}'
+        })
+
+        response.headers['Content-Security-Policy'] = f"style-src 'nonce-{style_nonce}'; script-src 'nonce-{script_nonce}'"
+        response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+        response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+        response.headers['Cross-Origin-Resource-Policy'] = 'same-site'
+
+        return response
+
+
+@routes.get('/enc/{kind}/{filename}')
+def get_encrypted(request: web.Request) -> web.Response:
+    match request.match_info['kind']:
+        case 'pub':
+            filedir = OUTPUT_PUBLIC
+            base_url = config['fileupload']['output']['public_base_url']
+        case 'priv':
+            filedir = OUTPUT_PRIVATE
+            base_url = config['fileupload']['output']['private_base_url']
+        case _:
+            raise web.HTTPForbidden()
+
+    filename = request.match_info['filename']
+    if not (filedir / filename).exists():
+        raise web.HTTPForbidden()
+    file_url = f'{base_url}/{filename}'
+
+    style_nonce = schema.make_nonce(config['fileupload']['css_nonce_length'])
+    script_nonce = schema.make_nonce(config['fileupload']['javascript_nonce_length'])
+
+    response = aiohttp_jinja2.render_template('encrypted.jinja2', request, {
+        'style_nonce': style_nonce,
+        'script_nonce': script_nonce,
+        'file_url': file_url,
+        'url': f'{config["fileupload"]["base_url"]}/enc/{request.match_info["kind"]}/{filename}',
+        'filename': filename
+    })
+
+    response.headers['Content-Security-Policy'] = f"style-src 'nonce-{style_nonce}'; script-src 'nonce-{script_nonce}'"
+    response.headers['Cross-Origin-Embedder-Policy'] = 'require-corp'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-site'
+
+    return response
 
 
 def mask(a, b):
@@ -250,7 +317,7 @@ def mask(a, b):
 
 app = web.Application()
 aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(ROOTDIR / 'templates')), filters={
-    'mask': mask
+    'mask': mask,
 })
 app.add_routes(routes)
 web.run_app(app, host=config['fileupload']['listen_address'], port=config['fileupload']['port'], reuse_address=True)

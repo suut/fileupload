@@ -23,6 +23,15 @@
                 display: inline;
             }
 
+            #encrypt-block {
+                display: none;
+                margin-top: 10px;
+            }
+
+            #encrypt-block.visible {
+                display: block;
+            }
+
             #copied {
                 opacity: 0;
                 display: none;
@@ -68,25 +77,27 @@
         </div>
         <hr/>
         <form id="upload" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="metadata" value="keep" />
             <fieldset>
                 <legend>Upload file</legend>
                 {% if file_type|mask(file_types['picture']) %}
                     <div>
                         Image metadata:
                         <span>
-                            <input type="radio" id="keep-metadata" {# name="metadata" #} value="keep" checked disabled /><label for="keep-metadata">Keep</label>
-                            <input type="radio" id="remove-geolocation" {# name="metadata" #} value="geolocation" disabled /><label for="remove-geolocation">Remove geolocation</label>
-                            <input type="radio" id="remove-all" {# name="metadata" #} value="all" disabled /><label for="remove-all">Remove all</label>
+                            <input type="radio" id="keep-metadata" name="metadata" value="keep" /><label for="keep-metadata">Keep</label>
+                            <input type="radio" id="remove-geolocation" name="metadata" value="geolocation" checked /><label for="remove-geolocation">Remove geolocation</label>
+                            <input type="radio" id="remove-all" name="metadata" value="all" /><label for="remove-all">Remove all</label>
                         </span>
                     </div>
                 {% endif %}
-                <br/>
-                <div>
-                    <input type="file" name="file"/>
+                <div id="encrypt-block">
+                    <input type="checkbox" id="encrypt" name="encrypt"/> <label for="encrypt">End-to-end encryption</label>
                 </div>
                 <br/>
-                <button form="upload" type="submit">Upload</button>
+                <div>
+                    <input type="file" name="file" id="file" />
+                </div>
+                <br/>
+                <button id="submit-btn" form="upload" type="submit">Upload</button>
             </fieldset>
         </form>
         <br/>
@@ -116,15 +127,97 @@
              * @type {HTMLSpanElement}
              */
             const copied = document.getElementById('copied');
+            /**
+             * @type {HTMLButtonElement}
+             */
+            const submitBtn = document.getElementById('submit-btn');
+            /**
+             * @type {HTMLFormElement}
+             */
+            const form = document.getElementById("upload");
+            /**
+             * @type {HTMLInputElement}
+             */
+            const fileElement = document.getElementById("file");
+            /**
+             * @type {HTMLDivElement}
+             */
+            const encryptBlock = document.getElementById('encrypt-block');
+            /**
+             * @type {HTMLInputElement}
+             */
+            const encryptCheckbox = document.getElementById('encrypt');
 
             btn.addEventListener('click', e => {
                 url.select();
                 navigator.clipboard.writeText(url.value).then(() => {
-                        copied.classList.add('fade-in');
+                    copied.classList.add('fade-in');
                 });
             })
 
+            encryptCheckbox.addEventListener('change', e => {
+                for (const radio of document.querySelectorAll('input[type="radio"][name="metadata"]')) {
+                    radio.disabled = encryptCheckbox.checked;
+                }
+            })
+
+            /**
+             * @param file File
+             * @returns {Promise<void>}
+             */
+            async function encryptFile(file) {
+                const data = await file.arrayBuffer();
+
+                // generate a key
+                const key = await self.crypto.subtle.generateKey({name: "AES-GCM", length: 256}, true, ["encrypt"]);
+
+                // make an IV
+                const iv = new Uint8Array(12);
+                self.crypto.getRandomValues(iv);
+
+                // encrypt
+                const ciphertext = await self.crypto.subtle.encrypt({name: "AES-GCM", iv: iv, tagLength: 128}, key, data);
+
+                const keyBuffer = await self.crypto.subtle.exportKey('raw', key);
+                const keyView = new Uint8Array(keyBuffer);
+
+                const keyIv = '#' + iv.toBase64({alphabet: "base64url", omitPadding: true}) + '/' + keyView.toBase64({alphabet: "base64url", omitPadding: true});
+
+                // make the new File object
+                console.log('filename: ' + file.name);
+                const encryptedFile = new File([ciphertext], file.name, {type: 'application/octet-stream', lastModified: file.lastModified})
+
+                const formData = new FormData();
+                formData.append('file', encryptedFile);
+                formData.append('encrypted', 'true');
+
+                const response = await fetch(window.location, {body: formData, credentials: 'omit', method: 'POST', mode: 'same-origin', referrerPolicy: 'origin'});
+                const url = (await response.json()).url;
+
+                document.location = url + keyIv;
+            }
+
+            form.addEventListener('submit', e => {
+                if (!encryptCheckbox.checked) {
+                    return;
+                }
+                e.preventDefault();
+                console.log('form submitted');
+                if (fileElement.files.length !== 1) {
+                    console.error('no file selected');
+                    return;
+                }
+
+                encryptFile(fileElement.files[0]).then(() => {
+                    console.log('encryption done');
+                }).catch(reason => {
+                    console.error('encryption failed:');
+                    console.error(reason);
+                })
+            })
+
             btn.classList.add('visible');
+            encryptBlock.classList.add('visible');
         </script>
     </body>
 </html>
