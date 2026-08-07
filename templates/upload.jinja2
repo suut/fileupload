@@ -53,6 +53,10 @@
                     display: inline;
                 }
             }
+
+            #log {
+                color: red;
+            }
         </style>
     </head>
     <body>
@@ -196,7 +200,13 @@
                 formData.append('file', encryptedFile);
                 formData.append('encrypted', 'true');
 
-                const response = await fetch(window.location, {body: formData, credentials: 'omit', method: 'POST', mode: 'same-origin', referrerPolicy: 'origin'});
+                const response = await fetch(window.location, {
+                    body: formData,
+                    credentials: 'omit',
+                    method: 'POST',
+                    mode: 'same-origin',
+                    referrerPolicy: 'origin'
+                });
                 if (response.status !== 200) {
                     throw new Error('upload failed: ' + response.statusText);
                 }

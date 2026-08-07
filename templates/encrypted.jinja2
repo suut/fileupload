@@ -7,7 +7,7 @@
         <title>Encrypted file</title>
         <style nonce="{{ style_nonce }}">
             #url {
-                width: 600px;
+                width: 30vw;
                 font-family: monospace;
             }
 
@@ -60,12 +60,12 @@
 
             #display-area {
                 max-width: 80vw;
-                max-height: 60vh;
+                max-height: 80vh;
                 overflow: auto;
             }
 
             object {
-
+                max-width: 100vw;
             }
         </style>
     </head>
@@ -86,7 +86,7 @@
             </div>
             <br/>
             <div>
-                File type: <code id="file-type">...</code>
+                File type: <code id="file-type">unknown</code>
             </div>
             <br/>
             <button id="download" disabled>Download file</button> <span id="link-area"></span>
@@ -183,7 +183,6 @@
                     method: 'GET',
                     mode: 'cors'
                 });
-                console.log(response);
 
                 const ciphertext = await response.bytes();
                 const iv = Uint8Array.fromBase64(ivEncoded, {alphabet: 'base64url', lastChunkHandling: 'loose'});
@@ -233,18 +232,29 @@
                     const object = document.createElement('object');
                     object.type = decryptedFile.type;
                     object.data = decryptedFileURL;
-                    displayArea.appendChild(object);
 
                     /**
                      * @type {HTMLAnchorElement}
                      */
-                    const a = document.createElement('a');
-                    a.target = '_blank';
-                    a.href = decryptedFileURL;
-                    a.text = 'Open in new tab';
-                    linkArea.appendChild(a);
+                    const newtabLink = document.createElement('a');
+                    newtabLink.target = '_blank';
+                    newtabLink.href = decryptedFileURL;
+                    newtabLink.text = 'Open in new tab';
+                    linkArea.appendChild(newtabLink);
+
+                    if (decryptedFile.type.startsWith('image/')) {
+                        /**
+                         * @type {HTMLAnchorElement}
+                         */
+                        const displayLink = newtabLink.cloneNode();
+                        displayLink.appendChild(object);
+                        displayArea.appendChild(displayLink);
+                    } else {
+                        displayArea.appendChild(object);
+                    }
                 }
             }).catch(e => {
+                state.innerText = 'Error.';
                 console.error(e);
                 log.innerText += e.toString() + '\n';
             });
