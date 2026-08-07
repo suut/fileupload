@@ -57,6 +57,16 @@
             #log {
                 color: red;
             }
+
+            #display-area {
+                max-width: 80vw;
+                max-height: 60vh;
+                overflow: auto;
+            }
+
+            object {
+
+            }
         </style>
     </head>
     <body>
@@ -71,8 +81,18 @@
                 <span id="copied">Copied!</span>
             </div>
             <br/>
-            <button id="download">Download file</button>
+            <div>
+                File state: <span id="state">Inactive</span>
+            </div>
+            <br/>
+            <div>
+                File type: <code id="file-type">...</code>
+            </div>
+            <br/>
+            <button id="download" disabled>Download file</button> <span id="link-area"></span>
             <pre id="log"></pre>
+            <br/>
+            <div id="display-area"></div>
         </div>
         <script nonce="{{ script_nonce }}" blocking="render">
             /**
@@ -99,6 +119,30 @@
              * @type {HTMLDivElement}
              */
             const log = document.getElementById('log');
+            /**
+             * @type {HTMLSpanElement}
+             */
+            const state = document.getElementById('state');
+            /**
+             * @type {HTMLDivElement}
+             */
+            const displayArea = document.getElementById('display-area');
+            /**
+             * @type {HTMLSpanElement}
+             */
+            const linkArea = document.getElementById('link-area');
+            /**
+             * @type {HTMLElement}
+             */
+            const fileType = document.getElementById('file-type');
+            /**
+             * @type {File}
+             */
+            let decryptedFile = null;
+            /**
+             * @type {String}
+             */
+            let decryptedFileURL = null;
 
             btn.addEventListener('click', e => {
                 url.select();
@@ -110,20 +154,20 @@
             /**
              * @param fileUrl String
              * @param fileName String
-             * @returns {Promise<void>}
+             * @param keyIv String
+             * @returns {Promise<(File|URL)[]>}
              */
-            async function downloadFile(fileUrl, fileName) {
-                const hash = window.location.hash;
-                if (!hash.startsWith('#')) {
+            async function loadFile(fileUrl, fileName, keyIv) {
+                if (!keyIv.startsWith('#')) {
                     throw new Error('Anchor does not start with #');
                 }
-                const sep = hash.indexOf('/');
+                const sep = keyIv.indexOf('/');
                 if (sep === -1) {
                     throw new Error('Malformed anchor');
                 }
 
-                const ivEncoded = hash.slice(1, sep);
-                const keyEncoded = hash.slice(sep + 1);
+                const ivEncoded = keyIv.slice(1, sep);
+                const keyEncoded = keyIv.slice(sep + 1);
 
                 if (ivEncoded === '') {
                     throw new Error('Empty IV');
@@ -139,6 +183,7 @@
                     method: 'GET',
                     mode: 'cors'
                 });
+                console.log(response);
 
                 const ciphertext = await response.bytes();
                 const iv = Uint8Array.fromBase64(ivEncoded, {alphabet: 'base64url', lastChunkHandling: 'loose'});
@@ -147,31 +192,68 @@
 
                 const cleartext = await self.crypto.subtle.decrypt({name: 'AES-GCM', iv: iv, tagLength: 128}, key, ciphertext);
 
-                const file = new File([cleartext], fileName, {type: 'application/octet-stream'});
+                const file = new File([cleartext], fileName, {type: response.headers.get('content-type')});
                 const blobUrl = URL.createObjectURL(file);
 
+                return [file, blobUrl];
+            }
+
+            /**
+             * @returns {Promise<void>}
+             */
+            async function downloadFile() {
                 /**
                  * @type {HTMLAnchorElement}
                  */
                 const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = fileName;
+                a.href = decryptedFileURL;
+                a.download = decryptedFile.name;
                 a.click();
                 a.remove();
-
-                URL.revokeObjectURL(blobUrl);
             }
 
             download.addEventListener('click', e => {
-                downloadFile({{ file_url|tojson }}, {{ filename|tojson }}).catch(e => {
-                    console.error(e);
+                if (decryptedFile === null || decryptedFileURL === null) {
+                    log.innerText += 'File not downloaded yet.\n';
+                    return;
+                }
+                downloadFile().catch(e => {
+                    console.log(e);
                     log.innerText += e.toString() + '\n';
-                });
+                })
             })
 
             url.value = window.location;
             btn.classList.add('visible');
             content.classList.add('visible');
+
+            state.innerText = 'Loading...';
+            loadFile({{ file_url|tojson }}, {{ filename|tojson }}, window.location.hash).then((r) => {
+                state.innerText = 'Loaded and decrypted.';
+                [decryptedFile, decryptedFileURL] = r;
+                download.disabled = false;
+
+                fileType.innerText = decryptedFile.type;
+
+                if (decryptedFile.type.startsWith('text/') || decryptedFile.type.startsWith('image/') || decryptedFile.type.startsWith('video/')) {
+                    /**
+                     * @type {HTMLObjectElement}
+                     */
+                    const object = document.createElement('object');
+                    object.type = decryptedFile.type;
+                    object.data = decryptedFileURL;
+                    displayArea.appendChild(object);
+
+                    /**
+                     * @type {HTMLAnchorElement}
+                     */
+                    const a = document.createElement('a');
+                    a.target = '_blank';
+                    a.href = decryptedFileURL;
+                    a.text = 'Open in new tab';
+                    linkArea.appendChild(a);
+                }
+            })
         </script>
     </body>
 </html>
