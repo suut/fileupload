@@ -10,6 +10,7 @@ import sys
 import datetime
 import binascii
 import tempfile
+import re
 
 import aiohttp.multipart
 from aiohttp import web
@@ -315,7 +316,32 @@ def mask(a, b):
     return a & b
 
 
-app = web.Application()
+suffixes = {
+    'k': 1024,
+    'm': 1024**2,
+    'g': 1024**3,
+    'kib': 1024,
+    'mib': 1024**2,
+    'gib': 1024**3,
+    'kb': 1024,
+    'mb': 1024**2,
+    'gb': 1024**3
+}
+
+if isinstance(config['fileupload']['max_size'], int):
+    max_size = config['fileupload']['max_size']
+elif isinstance(config['fileupload']['max_size'], str):
+    try:
+        size_str, suffix = re.split(r'(?=[^0-9])', config['fileupload']['max_size'].strip(), maxsplit=1)
+        max_size = int(size_str) * suffixes[suffix.lower().strip()]
+    except (ValueError, KeyError):
+        print('Malformed fileupload.max_size in configuration', file=sys.stderr)
+        sys.exit(1)
+else:
+    print('Invalid type for fileupload.max_size in configuration', file=sys.stderr)
+    sys.exit(1)
+
+app = web.Application(client_max_size=max_size)
 aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader(str(ROOTDIR / 'templates')), filters={
     'mask': mask,
 })

@@ -9,6 +9,7 @@ javascript_nonce_length = 16
 temporary_directory = "/var/fileupload/tmp"
 recv_file_timeout = 60  # [s]
 recv_chunk_timeout = 1  # [s], maximum time to receive 4KiB; thus minimum upload speed 32Kbps
+max_size = "200M"
 
 [fileupload.output]
 private_dir = "/var/www/private"
