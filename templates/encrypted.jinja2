@@ -198,29 +198,20 @@
                 return [file, blobUrl];
             }
 
-            /**
-             * @returns {Promise<void>}
-             */
-            async function downloadFile() {
+            download.addEventListener('click', e => {
+                if (decryptedFile === null || decryptedFileURL === null) {
+                    log.innerText += 'File not downloaded yet.\n';
+                    return;
+                }
                 /**
                  * @type {HTMLAnchorElement}
                  */
                 const a = document.createElement('a');
                 a.href = decryptedFileURL;
                 a.download = decryptedFile.name;
+                a.type = decryptedFile.type;
                 a.click();
                 a.remove();
-            }
-
-            download.addEventListener('click', e => {
-                if (decryptedFile === null || decryptedFileURL === null) {
-                    log.innerText += 'File not downloaded yet.\n';
-                    return;
-                }
-                downloadFile().catch(e => {
-                    console.log(e);
-                    log.innerText += e.toString() + '\n';
-                })
             })
 
             url.value = window.location;
@@ -253,7 +244,10 @@
                     a.text = 'Open in new tab';
                     linkArea.appendChild(a);
                 }
-            })
+            }).catch(e => {
+                console.error(e);
+                log.innerText += e.toString() + '\n';
+            });
         </script>
     </body>
 </html>
