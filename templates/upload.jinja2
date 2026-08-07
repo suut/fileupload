@@ -98,6 +98,8 @@
                 </div>
                 <br/>
                 <button id="submit-btn" form="upload" type="submit">Upload</button>
+                <br/>
+                <pre id="log"></pre>
             </fieldset>
         </form>
         <br/>
@@ -147,7 +149,10 @@
              * @type {HTMLInputElement}
              */
             const encryptCheckbox = document.getElementById('encrypt');
-
+            /**
+             * @type {HTMLPreElement}
+             */
+            const log = document.getElementById('log');
             btn.addEventListener('click', e => {
                 url.select();
                 navigator.clipboard.writeText(url.value).then(() => {
@@ -192,6 +197,9 @@
                 formData.append('encrypted', 'true');
 
                 const response = await fetch(window.location, {body: formData, credentials: 'omit', method: 'POST', mode: 'same-origin', referrerPolicy: 'origin'});
+                if (response.status !== 200) {
+                    throw new Error('upload failed: ' + response.statusText);
+                }
                 const url = (await response.json()).url;
 
                 document.location = url + keyIv;
@@ -213,6 +221,7 @@
                 }).catch(reason => {
                     console.error('encryption failed:');
                     console.error(reason);
+                    log.innerText += reason.toString();
                 })
             })
 
