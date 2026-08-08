@@ -42,6 +42,16 @@
                 animation: fade-in 0.2s ease-in forwards;
             }
 
+            #status {
+                opacity: 0;
+                display: none;
+            }
+
+            #status.fade-in {
+                display: inline;
+                animation: fade-in 0.2s ease-in forwards;
+            }
+
             @keyframes fade-in {
                 0% {
                     opacity: 0;
@@ -101,7 +111,7 @@
                     <input type="file" name="file" id="file" />
                 </div>
                 <br/>
-                <button id="submit-btn" form="upload" type="submit">Upload</button>
+                <button id="submit-btn" form="upload" type="submit">Upload</button> <span id="status"></span>
                 <br/>
                 <pre id="log"></pre>
             </fieldset>
@@ -157,6 +167,11 @@
              * @type {HTMLPreElement}
              */
             const log = document.getElementById('log');
+            /**
+             * @type {HTMLSpanElement}
+             */
+            const status = document.getElementById('status');
+
             btn.addEventListener('click', e => {
                 url.select();
                 navigator.clipboard.writeText(url.value).then(() => {
@@ -216,15 +231,23 @@
             }
 
             form.addEventListener('submit', e => {
+                if (fileElement.files.length !== 1) {
+                    console.error('no file selected');
+                    status.innerText = 'No file selected!';
+                    status.classList.add('fade-in');
+                    e.preventDefault();
+                    return;
+                }
+
+                submitBtn.disabled = true;
+                status.innerText = 'Uploading...';
+                status.classList.add('fade-in');
+
                 if (!encryptCheckbox.checked) {
                     return;
                 }
+
                 e.preventDefault();
-                console.log('form submitted');
-                if (fileElement.files.length !== 1) {
-                    console.error('no file selected');
-                    return;
-                }
 
                 encryptFile(fileElement.files[0]).then(() => {
                     console.log('encryption done');
