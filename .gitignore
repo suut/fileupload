@@ -10,3 +10,8 @@ __pycache__/
 
 # Text editors
 *.swp
+
+# Certificates
+*.pfx
+*.key
+*.pem
