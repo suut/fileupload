@@ -44,6 +44,7 @@ OUTPUT_PUBLIC.mkdir(parents=True, exist_ok=True)
 
 routes = web.RouteTableDef()
 
+mime_types = json.loads(Path(ROOTDIR / 'mime.json').read_text())
 
 @routes.get('/')
 async def index(request: web.Request) -> web.Response:
@@ -205,12 +206,12 @@ async def post(request: web.Request) -> web.Response:
                     print(f'Metadata policy: {metadata!r}')
 
                 case 'file':
-                    if not field.filename:
-                        raise web.HTTPForbidden()  # empty file or no filename
-
                     filename = field.filename
 
-                    if field.filename in ('.', '..') or '/' in field.filename:
+                    if not filename:
+                        raise web.HTTPForbidden()  # empty file or no filename
+
+                    if filename in ('.', '..') or '/' in filename:
                         raise web.HTTPForbidden()
 
                     await read_multipart(tmp, field, config['fileupload']['recv_chunk_timeout'],
@@ -221,7 +222,7 @@ async def post(request: web.Request) -> web.Response:
                     if await field.text(encoding='utf-8') == 'true':
                         encrypted = True
 
-                case x:
+                case _:
                     raise web.HTTPForbidden()
             found_fields.add(field.name)
         if 'file' not in found_fields:
